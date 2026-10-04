@@ -1,12 +1,13 @@
 /**
 CEN 4078 Programming Exercise: 2
 File Name:  almazan-programming-2.cpp
+Date: 10/04/2026
 
-The programming exercise 2 is for testing login functionality with secure software requirements
-and testing the input validation and type checking
+Programming exercise 2 is focused on storing usernames and passwords as a Vigenere chipertext.
+This program allows for two attempst to log in, and the credentials must follow a specified password policy. 
 
 @author Mark Almazan
-@version 1.0*/
+@version 2.0*/
 
 #include <iostream>
 #include <fstream>
@@ -14,13 +15,114 @@ and testing the input validation and type checking
 #include <limits>
 #include <cctype>
 #include <conio.h>
+#include <stdexcept>
+#include <random>
+#include <algorithm>
 
 using namespace std;
+
+const string ALPHA_KEY = "ARGOSROCK";
+const string NUMBER_KEY = "1963";
+const int max_attempts = 2;
 
 struct Account {
     string username;
     string password;
     int mfaToken;
+};
+
+struct PasswordPolicy {
+    size_t minLength = 8;
+    size_t maxLength = 12;
+    bool requireUpper = true;
+    bool requireLower = true;
+    bool requireDigit = true;
+    bool alphanumericOnly = true;
+};
+
+class cryptographer {
+private:
+    string alphaKey;
+    string numberKey;
+
+    char shiftLetter(char c, char keyChar, int direction) {
+        char base = isupper(static_cast<unsigned char>(c)) ? 'A' : 'a';
+        int shift = toupper(static_cast<unsigned char>(keyChar)) - 'A';
+        int position = c - base;
+        int newPosition = (position + direction * shift + 26) % 26;
+        return static_cast<char>(base + newPosition);
+    }
+
+    char shiftDigit(char c, char keyChar, int direction) {
+        int shift = keyChar - '0';
+        int position = c - '0';
+        int newPosition = (position - direction * shift + 10) % 10;
+        return static_cast<char>('0' + newPosition);
+    }
+
+    string vigenereLetters(const string& key, const string& text, int direction) {
+        if (key.empty()) {
+            return text;
+        }
+
+        string result = text;
+        size_t keyIndex = 0;
+
+        for (char& c : result) {
+            if (isalpha(static_cast<unsigned char>(c))) {
+                char keyChar = key[keyIndex % key.length()]; 
+                c = shiftLetter(c, keyChar, direction);
+                ++keyIndex;
+            }
+        }
+        return result;
+    }
+
+    string vigenereNumbers(const string& key, const string& text, int direction) {
+        if (key.empty()) {
+            return text;
+        }
+
+        string result = text;
+        size_t keyIndex = 0;
+
+        for (char& c : result) {
+            if (isdigit(static_cast<unsigned char>(c))) {
+                char keyChar = key[keyIndex % key.length()]; 
+                c = shiftDigit(c, keyChar, direction);
+                ++keyIndex;
+            }
+        }
+        return result;
+    }
+
+public:
+    cryptographer(const string& alpha = ALPHA_KEY, const string& number = NUMBER_KEY)
+        : alphaKey(alpha), numberKey(number) {}
+
+        string encryptVigenere(const string& alphaKey, const string& clearText) {
+            return vigenereLetters(alphaKey, clearText, 1);
+        }
+
+        string decryptVigenere(const string& alphaKey, const string& cipherText) {
+            return vigenereLetters(alphaKey, cipherText, -1);
+        }
+
+        string encryptNumber(const string& numberKey, const string& clearText) {
+            return vigenereNumbers(numberKey, clearText, 1);
+        }
+
+        string decryptNumber(const string& numberKey, const string& cipherText) {
+            return vigenereNumbers(numberKey, cipherText, -1);
+        }
+
+        string encrypt(const string& clearText) {
+            return encryptNumber(numberKey, encryptVigenere(alphaKey, clearText));
+        }
+
+        string decrypt(const string& cipherText) {
+            return decryptNumber(numberKey, decryptVigenere(alphaKey, cipherText));
+        }
 };
 
 class Validator {
@@ -35,8 +137,39 @@ public:
         return true;
     }
 
+    bool isAlphanumeric(const string& input) {
+        if (input.empty()) {
+            return false;
+        }
+
+        for (char c : input) {
+            if (!isalnum(static_cast<unsigned char>(c))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    PasswordPolicy getPasswordPolicy() const {
+        PasswordPolicy policy;
+        return policy;
+    }
+
+    string promptPasswordPolicy() const {
+        PasswordPolicy policy = getPasswordPolicy();
+        return "Password must be " + to_string(policy.minLength) + "-" +
+            to_string(policy.maxLength) + " characters long. It must contain only letters and numbers. " 
+            "With at least one Uppercase and Lowercase letter, and one number.";
+    }
+
     bool passwordPolicy(const string& password) {
-        if (password.length() < 8 || password.length() > 12) {
+        PasswordPolicy policy = getPasswordPolicy();
+        
+        if (password.length() < policy.minLength || password.length() > policy.maxLength) {
+            return false;
+        }
+
+        if (policy.alphanumericOnly && !isAlphanumeric(password)) {
             return false;
         }
 
@@ -45,18 +178,16 @@ public:
         bool hasDigit = false;
 
         for (char c : password) {
-            if (isupper(static_cast<unsigned char>(c))) {
-                hasUpper = true;
-            }
-            if (islower(static_cast<unsigned char>(c))) {
-                hasLower = true;
-            }
-            if (isdigit(static_cast<unsigned char>(c))) {
-                hasDigit = true;
-            }
+            if (isupper(static_cast<unsigned char>(c))) hasUpper = true;
+            if (islower(static_cast<unsigned char>(c))) hasLower = true;
+            if (isdigit(static_cast<unsigned char>(c))) hasDigit = true;
         }
 
-        return hasUpper && hasLower && hasDigit;
+        if (policy.requireUpper && !hasUpper) return false;
+        if (policy.requireLower && !hasLower) return false;
+        if (policy.requireDigit && !hasDigit) return false;
+
+        return true;
     }
 
     bool integerOverflow(const string& input) {
@@ -73,10 +204,57 @@ public:
     }
 };
 
-const Account accounts[] = {
-    {"scientist", "OrgoCh101", 1234567890},
-    {"engineer", "MechE202", 1357924680},
-    {"security", "Cyber303", 1122334455}
+class defaultPassword {
+private:
+    PasswordPolicy policy;
+    mt19937 rng;
+
+    char randomFrom(const string& chars) {
+        uniform_int_distribution<size_t> dist(0, chars.length() - 1);
+        return chars[dist(rng)];
+    }
+
+public:
+    defaultPassword(const PasswordPolicy& p) : policy(p), rng(random_device{}()) {}
+
+    string generate() {
+        const string upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        const string lower = "abcdefghijklmnopqrstuvwxyz";
+        const string digits = "0123456789";
+        const string all = upper + lower + digits;
+
+        uniform_int_distribution<size_t> lengthPick(policy.minLength, policy.maxLength);
+        size_t length = lengthPick(rng);
+
+        string password;
+        password += randomFrom(upper);
+        password += randomFrom(lower);
+        password += randomFrom(digits);
+
+        while (password.length() < length) {
+            password += randomFrom(all);
+        }
+
+        shuffle(password.begin(), password.end(), rng);
+        return password;
+    }
+
+    void notifyUser() {
+        cout << "Your password is set to a default password." << endl;
+        cout << "You will receive a secure email with your password." << endl;
+    }
+
+    string setDefaultPassword() {
+        string password = generate();
+        notifyUser();
+        return password;
+    }
+};
+
+    const Account accounts[] = {
+    {"stosfkwud", "OimcUy015", 1234567890},
+    {"eemwfvst", "MvivW116", 1357924680},
+    {"sviijzha", "Cphsj217", 1122334455}
 };
 
 void writeToFile(const Account accounts[], size_t count, const string& fileName) {
@@ -91,34 +269,22 @@ void writeToFile(const Account accounts[], size_t count, const string& fileName)
     }
 
     outFile.close();
-    cout << "Account list saved to " << fileName << endl;
 }
 
-int main() {
-    string username;
+void loginFailed() {
+    cout << "Login failed. Please try again." << endl;
+}
+
+string readPassword() {
     string password;
-    string mfaTokenInput;
-    int mfaToken = 0;
     char ch;
-    Validator validator;
 
-    writeToFile(accounts, sizeof(accounts) / sizeof(accounts[0]), "accounts.txt");
-
-    cout << "Welcome to Login Central - Login on demand!" << endl;
-    cout << "Enter username: ";
-    cin >> username;
-
-    if (!validator.sqlInjection(username)) {
-        cout << "Login failed. Please try again." << endl;
-        return 0;
-    }
-
-    cout << "Enter password: ";
+    cout << "Enter Password: ";
     while (true) {
         ch = _getch();
-        if (ch == 13) { // Enter key
+        if (ch == 13) {
             break;
-        } else if (ch == 8) { // Backspace key
+        } else if (ch == 8) {
             if (!password.empty()) {
                 password.pop_back();
                 cout << "\b \b";
@@ -129,16 +295,62 @@ int main() {
         }
     }
     cout << endl;
+    return password;
+}
 
-    if (!validator.sqlInjection(password) || !validator.passwordPolicy(password)) {
-        cout << "Login failed. Please try again." << endl;
+int main() {
+    string username;
+    string password;
+    string mfaTokenInput;
+    int mfaToken = 0;
+    Validator validator;
+    cryptographer crypto;
+
+    writeToFile(accounts, sizeof(accounts) / sizeof(accounts[0]), "accounts.txt");
+
+    cout << "Welcome to Login Central - Login on demand!" << endl;
+    cout << "Enter username: ";
+    cin >> username;
+
+    bool validPassword = false;
+    for (int attempt = 1; attempt <= max_attempts; ++attempt) {
+        password = readPassword();
+
+        if (validator.sqlInjection(password) && validator.passwordPolicy(password)) {
+            validPassword = true;
+            break;
+        }
+
+        if (attempt < max_attempts) {
+            cout << "Password does not meet Password Policy." << endl;
+            cout << validator.promptPasswordPolicy() << endl;
+        }
+    }
+
+    if (!validPassword) {
+        defaultPassword resetter(validator.getPasswordPolicy());
+        string newPassword = resetter.setDefaultPassword();
+        newPassword.assign(newPassword.length(), '\0');
         return 0;
     }
 
-    bool validLogin = false;
+    if (!validator.sqlInjection(username) || !validator.isAlphanumeric(username)) {
+        loginFailed();
+        return 0;
+    }
+
+        string encryptedUsername = crypto.encrypt(username);
+    string encryptedPassword = crypto.encrypt(password);
+
     const Account* matchedAccount = nullptr;
     for (const Account& account : accounts) {
-        if (username == account.username && password == account.password) {
+        bool encryptedMatch = (encryptedUsername == account.username &&
+             encryptedPassword == account.password);
+
+        bool decryptedMatch = (crypto.decrypt(account.username) == username &&
+            crypto.decrypt(account.password) == password);
+
+        if (encryptedMatch && decryptedMatch) {
             matchedAccount = &account;
             break;
         }
@@ -149,24 +361,24 @@ int main() {
         cin >> mfaTokenInput;
 
         if (!validator.integerOverflow(mfaTokenInput) || mfaTokenInput.length() != 10) {
-            cout << "Login failed. Please try again." << endl;
+            loginFailed();
             return 0;
         }
 
         try {
             mfaToken = stoi(mfaTokenInput);
         } catch (...) {
-            cout << "Login failed. Please try again." << endl;
+            loginFailed();
             return 0;
         }
 
         if (mfaToken == matchedAccount->mfaToken) {
             cout << "Login successful - Welcome " << username << "!" << endl;
         } else {
-            cout << "Login failed. Please try again." << endl;
+            loginFailed();
         }
     } else {
-        cout << "Login failed. Please try again." << endl;
+        loginFailed();
     }
 
     return 0;
