@@ -1,9 +1,9 @@
 /**
-CEN 4078 Promgramming Exercise: 2
+CEN 4078 Programming Exercise: 2
 File Name:  almazan-programming-2.cpp
 
-The programming exerise 1 is for testing login functionality with secure software requirements
-and testing the input validation oand type checking
+The programming exercise 2 is for testing login functionality with secure software requirements
+and testing the input validation and type checking
 
 @author Mark Almazan
 @version 1.0*/
