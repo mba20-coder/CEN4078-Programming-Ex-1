@@ -1,13 +1,15 @@
 /**
-CEN 4078 Programming Exercise: 2
-File Name:  almazan-programming-2.cpp
-Date: 10/04/2026
+CEN 4078 Programming Exercise: 3
+File Name:  almazan-programming-3.cpp
+Date: 11/08/2026
 
-Programming exercise 2 is focused on storing usernames and passwords as a Vigenere chipertext.
-This program allows for two attempst to log in, and the credentials must follow a specified password policy.
+Programming exercise 3 moves all password handling into the PasswordHandler Class.
+Password policy, password validation, and default password failures are each reported with their own excpetion and handled at the lowest level.
+Credentials are still stored as a Vigenere chipertext, and the program allows for two attempts to log in, 
+and credientials must follow a specified password policy.
 
 @author Mark Almazan
-@version 2.0*/
+@version 3.0*/
 
 #include <iostream>
 #include <fstream>
@@ -40,6 +42,33 @@ struct PasswordPolicy
     bool requireLower = true;
     bool requireDigit = true;
     bool alphanumericOnly = true;
+};
+
+class PasswordPolicyException : public std::exception
+{
+public:
+    const char *what() const noexcept override
+    {
+        return "Password policy validation failed.";
+    }
+};
+
+class PasswordValidationException : public std::exception
+{
+public:
+    const char *what() const noexcept override
+    {
+        return "Authentication failed.";
+    }
+};
+
+class DefaultPasswordException : public std::exception
+{
+public:
+    const char *what() const noexcept override
+    {
+        return "Password reset failed.";
+    }
 };
 
 // created cryptographer class for Vigenere cipher encryption/decryption
@@ -149,31 +178,36 @@ public:
 class Validator
 {
 public:
-    bool sqlInjection(const string &input)
+    bool sqlInjection(const string &input) const
     {
+        if (input.empty())
+        {
+            throw PasswordValidationException();
+        }
+
         string invalidChars = "/-;\"";
         for (char c : input)
         {
             if (invalidChars.find(c) != string::npos)
             {
-                return false;
+                throw PasswordValidationException();
             }
         }
         return true;
     }
 
-    bool isAlphanumeric(const string &input)
+    bool isAlphanumeric(const string &input) const
     {
         if (input.empty())
         {
-            return false;
+            throw PasswordValidationException();
         }
 
         for (char c : input)
         {
             if (!isalnum(static_cast<unsigned char>(c)))
             {
-                return false;
+                throw PasswordValidationException();
             }
         }
         return true;
@@ -195,18 +229,24 @@ public:
                                              "With at least one Uppercase and Lowercase letter, and one number.";
     }
 
-    bool passwordPolicy(const string &password)
+    void validatePasswordRules(const string &password) const
     {
         PasswordPolicy policy = getPasswordPolicy();
 
         if (password.length() < policy.minLength || password.length() > policy.maxLength)
         {
-            return false;
+            throw PasswordPolicyException();
         }
 
-        if (policy.alphanumericOnly && !isAlphanumeric(password))
+        if (policy.alphanumericOnly)
         {
-            return false;
+            for (char c : password)
+            {
+                if (!isalnum(static_cast<unsigned char>(c)))
+                {
+                    throw PasswordPolicyException();
+                }
+            }
         }
 
         bool hasUpper = false;
@@ -224,16 +264,27 @@ public:
         }
 
         if (policy.requireUpper && !hasUpper)
-            return false;
+            throw PasswordPolicyException();
         if (policy.requireLower && !hasLower)
-            return false;
+            throw PasswordPolicyException();
         if (policy.requireDigit && !hasDigit)
-            return false;
-
-        return true;
+            throw PasswordPolicyException();
     }
 
-    bool integerOverflow(const string &input)
+    bool passwordPolicy(const string &password)
+    {
+        try
+        {
+            validatePasswordRules(password);
+            return true;
+        }
+        catch (const PasswordPolicyException &)
+        {
+            return false;
+        }
+    }
+
+    bool integerOverflow(const string &input) const
     {
         if (input.empty())
         {
@@ -301,13 +352,72 @@ public:
 
     string setDefaultPassword(Validator &validator)
     {
-        string password = generate();
-        while (!validator.passwordPolicy(password))
+        for (int attempt = 0; attempt < 10; ++attempt)
         {
-            password = generate();
+            string password = generate();
+            try
+            {
+                validator.validatePasswordRules(password);
+                notifyUser();
+                return password;
+            }
+            catch (const PasswordPolicyException &)
+            {
+                // continue to generate another candidate without exposing policy details
+            }
         }
-        notifyUser();
-        return password;
+
+        throw DefaultPasswordException();
+    }
+};
+
+// Created PasswordHandler Class
+// V3.0 11/08/2026
+class PasswordHandler
+{
+private:
+    Validator validator;
+    defaultPassword generator;
+
+public:
+    explicit PasswordHandler(const PasswordPolicy &policy)
+        : validator(), generator(policy) {}
+
+    void validateInput(const string &password) const
+    {
+        validator.sqlInjection(password); // throws PasswordValidationException on failure
+
+        validator.validatePasswordRules(password);
+    }
+
+    bool isValid(const string &password) const
+    {
+        try
+        {
+            validateInput(password);
+            return true;
+        }
+        catch (const std::exception &)
+        {
+            return false;
+        }
+    }
+
+    string getPolicyMessage() const
+    {
+        return validator.promptPasswordPolicy();
+    }
+
+    string generateDefault()
+    {
+        try
+        {
+            return generator.setDefaultPassword(validator);
+        }
+        catch (const std::exception &)
+        {
+            throw;
+        }
     }
 };
 
@@ -378,6 +488,7 @@ int main()
     string mfaTokenInput;
     int mfaToken = 0;
     Validator validator;
+    PasswordHandler passwordHandler(validator.getPasswordPolicy());
     cryptographer crypto;
 
     writeToFile(accounts, sizeof(accounts) / sizeof(accounts[0]), "accounts.txt");
@@ -391,26 +502,33 @@ int main()
     bool validPassword = false;
     for (int attempt = 1; attempt <= max_attempts; ++attempt)
     {
-        password = readPassword();
-
-        if (validator.sqlInjection(password) && validator.passwordPolicy(password))
+        try
         {
+            password = readPassword();
+            passwordHandler.validateInput(password);
             validPassword = true;
             break;
         }
-
-        if (attempt < max_attempts)
+        catch (const std::exception &)
         {
-            cout << "Password does not meet Password Policy." << endl;
-            cout << validator.promptPasswordPolicy() << endl;
+            if (attempt < max_attempts)
+            {
+                cout << "Access denied. Please try again." << endl;
+            }
         }
     }
 
     if (!validPassword)
     {
-        defaultPassword resetter(validator.getPasswordPolicy());
-        string newPassword = resetter.setDefaultPassword(validator);
-        newPassword.assign(newPassword.length(), '\0');
+        try
+        {
+            string newPassword = passwordHandler.generateDefault();
+            (void)newPassword;
+        }
+        catch (const std::exception &)
+        {
+            cout << "Access denied." << endl;
+        }
         return 0;
     }
 
@@ -475,4 +593,4 @@ int main()
     }
 
     return 0;
-}
+};
