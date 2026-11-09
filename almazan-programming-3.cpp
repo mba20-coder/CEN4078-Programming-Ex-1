@@ -532,7 +532,12 @@ int main()
         return 0;
     }
 
-    if (!validator.sqlInjection(username) || !validator.isAlphanumeric(username))
+    try
+    {
+        validator.sqlInjection(username);
+        validator.isAlphanumeric(username);
+    }
+    catch (const PasswordValidationException &)
     {
         loginFailed();
         return 0;
